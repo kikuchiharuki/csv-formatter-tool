@@ -53,6 +53,7 @@ body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; backgroun
 .file-info .btn-reset {
   margin-left: auto; background: none; border: 1px solid #e74c3c; color: #e74c3c;
   padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px;
+  white-space: nowrap;
 }
 .file-info .btn-reset:hover { background: #e74c3c; color: #fff; }
 
@@ -62,11 +63,17 @@ body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; backgroun
   margin-top: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
 .raw-section.visible { display: block; }
+/* 変換後は1行に折りたたむ（ヘッダー行だけ残す） */
+.raw-section.collapsed { padding: 12px 20px; }
+.raw-section.collapsed .table-wrapper,
+.raw-section.collapsed .mapping-section { display: none; }
+.raw-section.collapsed .raw-header { margin-bottom: 0; }
 .raw-header {
   display: flex; align-items: center; gap: 16px; margin-bottom: 12px;
   flex-wrap: wrap;
 }
-.raw-header h2 { font-size: 16px; }
+.raw-header h2 { font-size: 16px; cursor: pointer; user-select: none; }
+.raw-header h2:hover { color: #3498db; }
 .count-badge { font-size: 13px; color: #666; font-weight: normal; }
 .raw-actions { margin-left: auto; display: flex; align-items: center; gap: 12px; }
 .mapping-badge { font-size: 12px; }
@@ -85,6 +92,12 @@ body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; backgroun
 .btn-convert:hover { background: #229954; }
 .btn-convert:disabled { background: #bdc3c7; box-shadow: none; cursor: not-allowed; }
 
+/* 複数ファイル時の元データ見出し */
+.raw-file-title {
+  font-size: 14px; font-weight: 600; margin: 16px 0 6px; color: #444;
+}
+.raw-file-title:first-child { margin-top: 0; }
+
 /* Column mapping（raw-section内の折りたたみ） */
 .mapping-section {
   display: none; border: 1px solid #e0e0e0; border-radius: 8px;
@@ -92,6 +105,17 @@ body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; backgroun
 }
 .mapping-section.visible { display: block; }
 .mapping-section .mapping-desc { font-size: 13px; color: #666; margin-bottom: 16px; }
+
+/* マッピングのファイル切り替えタブ（複数ファイル時のみ表示） */
+.file-tabs { display: none; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.file-tabs.visible { display: flex; }
+.file-tab {
+  padding: 6px 14px; border: 1px solid #ddd; border-radius: 6px;
+  background: #f0f0f0; cursor: pointer; font-size: 13px;
+}
+.file-tab.active { background: #3498db; color: #fff; border-color: #3498db; font-weight: 600; }
+.file-tab.warn { border-color: #e67e22; color: #e67e22; }
+.file-tab.active.warn { background: #e67e22; color: #fff; }
 
 .mapping-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -148,6 +172,7 @@ body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; backgroun
 .preview-section h2 { font-size: 16px; margin-bottom: 12px; }
 
 .table-wrapper { overflow-x: auto; max-height: 500px; overflow-y: auto; }
+.preview-section .table-wrapper { max-height: none; }
 .data-table {
   width: 100%; border-collapse: collapse; font-size: 13px; white-space: nowrap;
 }
@@ -158,6 +183,13 @@ body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; backgroun
 .data-table td { padding: 6px 12px; border-bottom: 1px solid #eee; }
 .data-table tr:hover td { background: #f5f8ff; }
 .data-table .row-num { color: #999; text-align: center; width: 40px; }
+
+/* 複数ファイル時のファイル区切り行（VBA版のファイル名行を再現） */
+.data-table tr.file-sep-row td {
+  background: #eef2f7; font-weight: 700; font-size: 14px;
+  padding: 10px 12px; border-top: 2px solid #cbd5e0; color: #2c3e50;
+}
+.data-table tr.file-sep-row:hover td { background: #eef2f7; }
 
 /* Toast */
 .toast {
@@ -188,8 +220,8 @@ body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; backgroun
     <div class="drop-zone-text">
       ファイルをドラッグ&ドロップ、または<strong>クリックして選択</strong>
     </div>
-    <div class="drop-zone-sub">CSV (.csv) / Excel (.xlsx, .xls) に対応</div>
-    <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
+    <div class="drop-zone-sub">CSV (.csv) / Excel (.xlsx, .xls) に対応 ｜ 複数ファイル同時OK（最大5ファイル）</div>
+    <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" multiple>
   </div>
 
   <!-- File info -->
@@ -204,7 +236,7 @@ body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; backgroun
   <!-- 元データ + 変換ボタン -->
   <div class="raw-section" id="rawSection">
     <div class="raw-header">
-      <h2>元データ <span id="rawCount" class="count-badge"></span></h2>
+      <h2 id="rawTitle" title="クリックで開閉"><span id="rawToggleIcon">▾</span> 元データ <span id="rawCount" class="count-badge"></span></h2>
       <div class="raw-actions">
         <span class="mapping-badge" id="mappingBadge"></span>
         <button class="btn-link" id="btnToggleMapping">列マッピングを確認・編集 ▸</button>
@@ -217,6 +249,7 @@ body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; backgroun
         出力に必要な列と、読み込んだファイルの列の対応付けです。
         自動認識された列は青枠で表示されます。認識できなかった列は手動で選択してください。
       </div>
+      <div class="file-tabs" id="mappingTabs"></div>
       <div class="mapping-grid" id="mappingGrid"></div>
       <div class="mapping-actions">
         <button class="btn-secondary" id="btnAutoMap">自動認識やり直し</button>
@@ -242,6 +275,11 @@ body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; backgroun
 // 各セクションの説明は csv-formatter/README.md にも記載。
 // ════════════════════════════════════════════════════════════
 const CONFIG = {
+
+  // ──────────────────────────────────────────────
+  // ⓪ 一度に読み込めるファイル数の上限
+  // ──────────────────────────────────────────────
+  maxFiles: 5,
 
   // ──────────────────────────────────────────────
   // ① 出力列の定義（この順番で出力される / 最終形）
@@ -326,6 +364,7 @@ const CONFIG = {
   // ──────────────────────────────────────────────
   // ⑥ 重複注文の統合キー
   //    これが全て一致した行は数量を合算して1行にまとめる（重複列に「数量合算」）
+  //    ※ 統合はファイル単位で行う（ファイルをまたいで統合しない）
   // ──────────────────────────────────────────────
   duplicateMergeKeys: ['product', 'deliveryDate', 'companyName', 'address'],
 
@@ -369,9 +408,10 @@ const KNOWN_MAPPINGS = CONFIG.columnAliases;
 // ============================================================
 // State
 // ============================================================
-let rawHeaders = [];
-let rawData = [];
-let columnMapping = {};
+// files = [{ name, size, headers, rows, mapping }] ファイルごとに独立してマッピングを持つ
+let files = [];
+let activeMappingFile = 0;   // マッピングUIで編集中のファイル index
+let processedFiles = [];     // 変換結果: [{ name, rows }]
 
 // ============================================================
 // DOM
@@ -382,6 +422,7 @@ const fileInfo = document.getElementById('fileInfo');
 const rawSection = document.getElementById('rawSection');
 const rawTableWrapper = document.getElementById('rawTableWrapper');
 const mappingSection = document.getElementById('mappingSection');
+const mappingTabs = document.getElementById('mappingTabs');
 const mappingGrid = document.getElementById('mappingGrid');
 const mappingBadge = document.getElementById('mappingBadge');
 const previewSection = document.getElementById('previewSection');
@@ -396,74 +437,113 @@ dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover
 dropZone.addEventListener('drop', e => {
   e.preventDefault();
   dropZone.classList.remove('dragover');
-  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+  if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
 });
 fileInput.addEventListener('change', e => {
-  if (e.target.files.length) handleFile(e.target.files[0]);
+  if (e.target.files.length) handleFiles(e.target.files);
 });
 document.getElementById('btnReset').addEventListener('click', resetAll);
 document.getElementById('btnApplyMapping').addEventListener('click', applyMappingAndPreview);
-document.getElementById('btnAutoMap').addEventListener('click', () => buildMappingUI());
+document.getElementById('btnAutoMap').addEventListener('click', () => {
+  const f = files[activeMappingFile];
+  if (f) { f.mapping = autoDetectMapping(f.headers); addExtraMappings(f); }
+  buildMappingUI();
+});
 document.getElementById('btnToggleMapping').addEventListener('click', () => {
+  setRawCollapsed(false);  // 折りたたみ中なら開く
   const open = mappingSection.classList.toggle('visible');
   document.getElementById('btnToggleMapping').textContent =
     open ? '列マッピングを閉じる ▾' : '列マッピングを確認・編集 ▸';
 });
+// 「元データ」タイトルクリックで開閉
+document.getElementById('rawTitle').addEventListener('click', () => {
+  setRawCollapsed(!rawSection.classList.contains('collapsed'));
+});
 
-function handleFile(file) {
-  const ext = file.name.split('.').pop().toLowerCase();
-  if (ext === 'csv') {
-    readCSV(file);
-  } else if (ext === 'xlsx' || ext === 'xls') {
-    readExcel(file);
-  } else {
-    showToast('CSV または Excel ファイルを選択してください', 'error');
+function setRawCollapsed(collapsed) {
+  rawSection.classList.toggle('collapsed', collapsed);
+  document.getElementById('rawToggleIcon').textContent = collapsed ? '▸' : '▾';
+}
+
+// 複数ファイルをまとめて読み込む（最大 CONFIG.maxFiles ファイル）
+async function handleFiles(fileList) {
+  const arr = Array.from(fileList);
+  if (arr.length > CONFIG.maxFiles) {
+    showToast(`一度に読み込めるのは ${CONFIG.maxFiles} ファイルまでです（選択: ${arr.length}件）`, 'error');
     return;
   }
-  showFileInfo(file);
+
+  const loaded = [];
+  for (const file of arr) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    try {
+      let parsed;
+      if (ext === 'csv') {
+        parsed = await readCSV(file);
+      } else if (ext === 'xlsx' || ext === 'xls') {
+        parsed = await readExcel(file);
+      } else {
+        showToast(`${file.name}: CSV または Excel ファイルではありません`, 'error');
+        continue;
+      }
+      if (!parsed) {
+        showToast(`${file.name}: データが不足しています`, 'error');
+        continue;
+      }
+      loaded.push({ name: file.name, size: file.size, headers: parsed.headers, rows: parsed.rows, mapping: {} });
+    } catch (err) {
+      console.error(err);
+      showToast(`${file.name}: 読み込みに失敗しました`, 'error');
+    }
+  }
+
+  if (loaded.length === 0) return;
+  files = loaded;
+  activeMappingFile = 0;
+  onFilesLoaded();
 }
 
 function readCSV(file) {
-  const reader = new FileReader();
-  reader.onload = function(e) {
-    const uint8 = new Uint8Array(e.target.result);
-    const text = decodeWithDetection(uint8);
-
-    Papa.parse(text, {
-      header: false,
-      skipEmptyLines: true,
-      complete: function(results) {
-        if (results.data.length < 2) {
-          showToast('データが不足しています', 'error');
-          return;
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = function(e) {
+      const uint8 = new Uint8Array(e.target.result);
+      const text = decodeWithDetection(uint8);
+      Papa.parse(text, {
+        header: false,
+        skipEmptyLines: true,
+        complete: function(results) {
+          if (results.data.length < 2) { resolve(null); return; }
+          const headers = results.data[0].map(h => h.trim());
+          const rows = results.data.slice(1).filter(row => row.some(cell => cell.trim() !== ''));
+          resolve({ headers, rows });
         }
-        rawHeaders = results.data[0].map(h => h.trim());
-        rawData = results.data.slice(1).filter(row => row.some(cell => cell.trim() !== ''));
-        onDataLoaded();
-      }
-    });
-  };
-  reader.readAsArrayBuffer(file);
+      });
+    };
+    reader.readAsArrayBuffer(file);
+  });
 }
 
 function readExcel(file) {
-  const reader = new FileReader();
-  reader.onload = function(e) {
-    const data = new Uint8Array(e.target.result);
-    const workbook = XLSX.read(data, { type: 'array' });
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-    const json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-
-    if (json.length < 2) {
-      showToast('データが不足しています', 'error');
-      return;
-    }
-    rawHeaders = json[0].map(h => String(h).trim());
-    rawData = json.slice(1).filter(row => row.some(cell => String(cell).trim() !== ''));
-    onDataLoaded();
-  };
-  reader.readAsArrayBuffer(file);
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = function(e) {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+        if (json.length < 2) { resolve(null); return; }
+        const headers = json[0].map(h => String(h).trim());
+        const rows = json.slice(1).filter(row => row.some(cell => String(cell).trim() !== ''));
+        resolve({ headers, rows });
+      } catch (err) { reject(err); }
+    };
+    reader.readAsArrayBuffer(file);
+  });
 }
 
 // Shift-JIS / UTF-8 auto detection
@@ -482,53 +562,110 @@ function decodeWithDetection(uint8) {
   return new TextDecoder('shift_jis').decode(uint8);
 }
 
-function onDataLoaded() {
-  showToast(`${rawData.length} 件のデータを読み込みました`, 'success');
+function totalRowCount() {
+  return files.reduce((s, f) => s + f.rows.length, 0);
+}
+
+function onFilesLoaded() {
+  const total = totalRowCount();
+  const fileMsg = files.length > 1 ? `${files.length}ファイル ` : '';
+  showToast(`${fileMsg}${total} 件のデータを読み込みました`, 'success');
   setStep(2);
+
+  // 前回の変換結果をクリア
+  processedFiles = [];
+  previewSection.classList.remove('visible');
+  setRawCollapsed(false);
 
   // 元データをそのまま表示（Excelで開いた状態と同じ）
   rawSection.classList.add('visible');
-  document.getElementById('rawCount').textContent = `(${rawData.length} 件)`;
-  renderRawTable();
+  document.getElementById('rawCount').textContent =
+    files.length > 1 ? `(${files.length}ファイル / ${total} 件)` : `(${total} 件)`;
+  renderRawTables();
+  showFileInfo();
 
-  // マッピングは裏で自動実行。認識できない必須列があるときだけ開く
+  // マッピングは裏でファイルごとに自動実行。認識できない必須列があるときだけ開く
+  files.forEach(f => {
+    f.mapping = autoDetectMapping(f.headers);
+    addExtraMappings(f);
+  });
   buildMappingUI();
 }
 
-// 元データのテーブル表示
-function renderRawTable() {
-  let html = '<table class="data-table"><thead><tr><th class="row-num">#</th>';
-  rawHeaders.forEach(h => { html += `<th>${escapeHtml(h)}</th>`; });
-  html += '</tr></thead><tbody>';
-
-  const limit = Math.min(rawData.length, 200);
-  for (let i = 0; i < limit; i++) {
-    html += `<tr><td class="row-num">${i + 1}</td>`;
-    rawHeaders.forEach((_, ci) => {
-      html += `<td>${escapeHtml(String(rawData[i][ci] ?? ''))}</td>`;
-    });
-    html += '</tr>';
+// 元データのテーブル表示（複数ファイルは縦に並べ、ファイル名見出しを付ける）
+function renderRawTables() {
+  let html = '';
+  for (const f of files) {
+    if (files.length > 1) {
+      html += `<div class="raw-file-title">📄 ${escapeHtml(f.name)} (${f.rows.length}件)</div>`;
+    }
+    html += rawTableHtml(f);
   }
-  if (rawData.length > 200) {
-    html += `<tr><td colspan="${rawHeaders.length + 1}" style="text-align:center;color:#999;padding:12px;">
-      ... 他 ${rawData.length - 200} 件（表示は200件まで）</td></tr>`;
-  }
-  html += '</tbody></table>';
   rawTableWrapper.innerHTML = html;
 }
 
+function rawTableHtml(f) {
+  const limitPerFile = files.length > 1 ? 100 : 200;
+  let html = '<table class="data-table"><thead><tr><th class="row-num">#</th>';
+  f.headers.forEach(h => { html += `<th>${escapeHtml(h)}</th>`; });
+  html += '</tr></thead><tbody>';
+
+  const limit = Math.min(f.rows.length, limitPerFile);
+  for (let i = 0; i < limit; i++) {
+    html += `<tr><td class="row-num">${i + 1}</td>`;
+    f.headers.forEach((_, ci) => {
+      html += `<td>${escapeHtml(String(f.rows[i][ci] ?? ''))}</td>`;
+    });
+    html += '</tr>';
+  }
+  if (f.rows.length > limitPerFile) {
+    html += `<tr><td colspan="${f.headers.length + 1}" style="text-align:center;color:#999;padding:12px;">
+      ... 他 ${f.rows.length - limitPerFile} 件（表示は${limitPerFile}件まで）</td></tr>`;
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
 // ============================================================
-// Column mapping UI
+// Column mapping UI（ファイルごとに独立、タブで切り替え）
 // ============================================================
 function buildMappingUI() {
-  columnMapping = autoDetectMapping();
+  renderMappingTabs();
+  renderMappingGrid();
+  updateMappingStatus();
+}
+
+function renderMappingTabs() {
+  if (files.length <= 1) {
+    mappingTabs.classList.remove('visible');
+    mappingTabs.innerHTML = '';
+    return;
+  }
+  mappingTabs.classList.add('visible');
+  mappingTabs.innerHTML = '';
+  files.forEach((f, idx) => {
+    const btn = document.createElement('button');
+    btn.className = 'file-tab' + (idx === activeMappingFile ? ' active' : '');
+    if (requiredMissing(f).length > 0) btn.classList.add('warn');
+    btn.textContent = f.name;
+    btn.addEventListener('click', () => {
+      activeMappingFile = idx;
+      buildMappingUI();
+    });
+    mappingTabs.appendChild(btn);
+  });
+}
+
+function renderMappingGrid() {
+  const f = files[activeMappingFile];
+  if (!f) { mappingGrid.innerHTML = ''; return; }
 
   mappingGrid.innerHTML = '';
   OUTPUT_COLUMNS.forEach(col => {
     const item = document.createElement('div');
     item.className = 'mapping-item';
 
-    const currentVal = columnMapping[col.key];
+    const currentVal = f.mapping[col.key];
     const isAutoMapped = currentVal !== undefined && currentVal !== '';
     item.classList.add(isAutoMapped ? 'auto-mapped' : 'unmapped');
 
@@ -537,15 +674,15 @@ function buildMappingUI() {
       : '<span class="optional-badge">任意</span>';
 
     let options = `<option value="">-- なし（空白列） --</option>`;
-    rawHeaders.forEach((h, idx) => {
+    f.headers.forEach((h, idx) => {
       const selected = (currentVal === idx) ? 'selected' : '';
-      options += `<option value="${idx}" ${selected}>${h}</option>`;
+      options += `<option value="${idx}" ${selected}>${escapeHtml(h)}</option>`;
     });
 
     // Show sample data if mapped
     let sampleHtml = '';
-    if (isAutoMapped && rawData.length > 0) {
-      const samples = rawData.slice(0, 3).map(row => row[currentVal] || '').join(' / ');
+    if (isAutoMapped && f.rows.length > 0) {
+      const samples = f.rows.slice(0, 3).map(row => row[currentVal] || '').join(' / ');
       sampleHtml = `<div class="sample-data">例: ${escapeHtml(samples)}</div>`;
     }
 
@@ -560,37 +697,33 @@ function buildMappingUI() {
       const key = this.dataset.key;
       const val = this.value;
       if (val === '') {
-        delete columnMapping[key];
+        delete f.mapping[key];
         item.className = 'mapping-item unmapped';
       } else {
-        columnMapping[key] = parseInt(val);
+        f.mapping[key] = parseInt(val);
         item.className = 'mapping-item mapped';
       }
-      updateSampleData(item, key);
+      updateSampleData(item, key, f);
       updateMappingStatus();
+      renderMappingTabs();
     });
 
     mappingGrid.appendChild(item);
   });
-
-  // 電話番号の補助列（電話番号1が空のときのフォールバック用、UIには出さない）
-  addExtraMappingIfNeeded('phone2', '電話番号2');
-  addExtraMappingIfNeeded('contactPhone', '担当者連絡先番号');
-  addExtraMappingIfNeeded('inquiryPhone', '問合せ電話番号');
-
-  updateMappingStatus();
 }
 
-function addExtraMappingIfNeeded(key, label) {
-  const idx = rawHeaders.findIndex(h =>
-    KNOWN_MAPPINGS[key]?.some(pattern => h === pattern)
-  );
-  if (idx >= 0) {
-    columnMapping[key] = idx;
-  }
+// 電話番号の補助列（電話番号1が空のときのフォールバック用、UIには出さない）
+function addExtraMappings(f) {
+  ['phone2', 'contactPhone', 'inquiryPhone'].forEach(key => {
+    if (f.mapping[key] !== undefined) return;
+    const idx = f.headers.findIndex(h =>
+      KNOWN_MAPPINGS[key]?.some(pattern => h === pattern)
+    );
+    if (idx >= 0) f.mapping[key] = idx;
+  });
 }
 
-function autoDetectMapping() {
+function autoDetectMapping(headers) {
   const mapping = {};
   const normalizeHeader = h => h.replace(/[\s　]/g, '').replace(/[Ａ-Ｚａ-ｚ０-９]/g, s =>
     String.fromCharCode(s.charCodeAt(0) - 0xFEE0)
@@ -599,7 +732,7 @@ function autoDetectMapping() {
   // Phase 1: exact match on known mappings
   for (const [key, patterns] of Object.entries(KNOWN_MAPPINGS)) {
     for (const pattern of patterns) {
-      const idx = rawHeaders.findIndex(h => h === pattern);
+      const idx = headers.findIndex(h => h === pattern);
       if (idx >= 0 && !Object.values(mapping).includes(idx)) {
         mapping[key] = idx;
         break;
@@ -612,30 +745,24 @@ function autoDetectMapping() {
     if (mapping[key] !== undefined) continue;
     for (const pattern of patterns) {
       const normalizedPattern = normalizeHeader(pattern);
-      const idx = rawHeaders.findIndex(h =>
-        normalizeHeader(h) === normalizedPattern && !Object.values(mapping).includes(idx)
-      );
-      if (idx >= 0) {
+      const idx = headers.findIndex(h => normalizeHeader(h) === normalizedPattern);
+      if (idx >= 0 && !Object.values(mapping).includes(idx)) {
         mapping[key] = idx;
         break;
       }
     }
   }
 
-  // Special: if we have city/town/block but no combined address, note it for later merge
-  // If we have 'address' (住所) as a single column, map it to 'address'
-  // The processing step will handle the merge logic
-
   return mapping;
 }
 
-function updateSampleData(item, key) {
+function updateSampleData(item, key, f) {
   const existing = item.querySelector('.sample-data');
   if (existing) existing.remove();
 
-  const idx = columnMapping[key];
-  if (idx !== undefined && rawData.length > 0) {
-    const samples = rawData.slice(0, 3).map(row => row[idx] || '').join(' / ');
+  const idx = f.mapping[key];
+  if (idx !== undefined && f.rows.length > 0) {
+    const samples = f.rows.slice(0, 3).map(row => row[idx] || '').join(' / ');
     const div = document.createElement('div');
     div.className = 'sample-data';
     div.textContent = `例: ${samples}`;
@@ -643,43 +770,62 @@ function updateSampleData(item, key) {
   }
 }
 
-function updateMappingStatus() {
+// 必須列のうち未マッピングのものを返す（ファイル単位）
+function requiredMissing(f) {
   const required = OUTPUT_COLUMNS.filter(c => c.required);
-  const mapped = required.filter(c => {
+  const m = f.mapping;
+  return required.filter(c => {
     if (c.key === 'address') {
       // address is satisfied if directly mapped OR if city+town+block are all present
-      if (columnMapping.address !== undefined) return true;
-      return columnMapping.city !== undefined
-        && columnMapping.town !== undefined
-        && columnMapping.block !== undefined;
+      if (m.address !== undefined) return false;
+      return !(m.city !== undefined && m.town !== undefined && m.block !== undefined);
     }
     if (c.key === 'phone1') {
       // 電話番号系の列がどれか1つでもマッピングされていればOK
-      return CONFIG.phonePriority.some(k => columnMapping[k] !== undefined);
+      return !CONFIG.phonePriority.some(k => m[k] !== undefined);
     }
-    return columnMapping[c.key] !== undefined;
-  });
-  const status = document.getElementById('mappingStatus');
-  status.textContent = `必須列: ${mapped.length}/${required.length} 設定済み`;
+    return m[c.key] === undefined;
+  }).map(c => c.label);
+}
 
+function updateMappingStatus() {
+  const requiredCount = OUTPUT_COLUMNS.filter(c => c.required).length;
+  const status = document.getElementById('mappingStatus');
   const btn = document.getElementById('btnApplyMapping');
-  const allOk = mapped.length >= required.length;
+
+  // アクティブファイルの状態（マッピング編集画面用）
+  const f = files[activeMappingFile];
+  const activeMissing = f ? requiredMissing(f) : [];
+  status.textContent = `必須列: ${requiredCount - activeMissing.length}/${requiredCount} 設定済み`;
+  if (activeMissing.length) {
+    status.textContent += ` (不足: ${activeMissing.join(', ')})`;
+    status.style.color = '#e74c3c';
+  } else {
+    status.style.color = '#27ae60';
+  }
+
+  // 全ファイルの状態（バッジ・変換ボタン用）
+  const badFiles = files.filter(fl => requiredMissing(fl).length > 0);
+  const allOk = badFiles.length === 0;
   btn.disabled = !allOk;
 
   if (!allOk) {
-    const missing = required.filter(c => !mapped.includes(c)).map(c => c.label);
-    status.textContent += ` (不足: ${missing.join(', ')})`;
-    status.style.color = '#e74c3c';
-    // 認識できない列がある → バッジで警告し、マッピングを自動で開く
-    mappingBadge.textContent = `⚠ 未認識の列: ${missing.join(', ')}`;
+    const first = badFiles[0];
+    const label = files.length > 1 ? `「${first.name}」` : '';
+    mappingBadge.textContent = `⚠ ${label}未認識の列: ${requiredMissing(first).join(', ')}`;
     mappingBadge.className = 'mapping-badge warn';
+    // 認識できない列があるファイルを表示してマッピングを自動で開く
     if (!mappingSection.classList.contains('visible')) {
+      activeMappingFile = files.indexOf(first);
+      renderMappingTabs();
+      renderMappingGrid();
       mappingSection.classList.add('visible');
       document.getElementById('btnToggleMapping').textContent = '列マッピングを閉じる ▾';
     }
   } else {
-    status.style.color = '#27ae60';
-    mappingBadge.textContent = '✓ 列の自動認識OK';
+    mappingBadge.textContent = files.length > 1
+      ? `✓ 全${files.length}ファイル 列の自動認識OK`
+      : '✓ 列の自動認識OK';
     mappingBadge.className = 'mapping-badge ok';
   }
 }
@@ -701,6 +847,7 @@ function isValidPhone(s) {
 
 // ============================================================
 // データ処理パイプライン（VBAマクロの処理チェーンを再現）
+// ファイル単位で実行する（重複統合・連番はファイル内で完結）
 // 順序: 運送会社判定 → 重複統合 → 連番 → 会社名処理
 // ============================================================
 function processData(rows) {
@@ -744,7 +891,7 @@ function processData(rows) {
     }
   }
 
-  // --- 3. 番号の連番振り直し ---
+  // --- 3. 番号の連番振り直し（ファイルごとに1から）---
   merged.forEach((r, i) => { r.number = String(i + 1); });
 
   // --- 4. 会社名処理（製品ルール + ㈱改行）---
@@ -788,32 +935,46 @@ function buildProductSummary(rows) {
 }
 
 // ============================================================
-// マッピング確定 → 整形処理 → プレビュー
+// マッピング確定 → 整形処理（ファイル単位） → プレビュー
 // ============================================================
-let processedRows = [];
-
 function applyMappingAndPreview() {
   previewSection.classList.add('visible');
 
-  const mappedData = buildMappedData();
-  const { rows, stats } = processData(mappedData);
-  processedRows = rows;
+  const totalStats = { merged: 0, yupack: 0, storeAdded: 0, lineBreaks: 0 };
+  processedFiles = [];
 
-  renderSummaryBar(rows, stats);
-  renderPreviewTable(rows);
+  for (const f of files) {
+    const mappedData = buildMappedData(f);
+    const { rows, stats } = processData(mappedData);
+    Object.keys(totalStats).forEach(k => { totalStats[k] += stats[k]; });
+    processedFiles.push({ name: f.name, rows });
+  }
 
-  document.getElementById('previewCount').textContent = `(${rows.length} 件)`;
+  const allRows = processedFiles.flatMap(pf => pf.rows);
+
+  renderSummaryBar(allRows, totalStats);
+  renderPreviewTable(processedFiles);
+
+  document.getElementById('previewCount').textContent =
+    files.length > 1
+      ? `(${files.length}ファイル / ${allRows.length} 件)`
+      : `(${allRows.length} 件)`;
   setStep(3);
 
-  let msg = `整形完了: ${rows.length}件`;
-  if (stats.merged > 0) msg += ` / 重複統合 ${stats.merged}件`;
-  if (stats.yupack > 0) msg += ` / ゆうパック ${stats.yupack}件`;
+  // 元データは1行に折りたたむ（見たいのは変換結果なので）
+  setRawCollapsed(true);
+  mappingSection.classList.remove('visible');
+  document.getElementById('btnToggleMapping').textContent = '列マッピングを確認・編集 ▸';
+
+  let msg = `整形完了: ${allRows.length}件`;
+  if (totalStats.merged > 0) msg += ` / 重複統合 ${totalStats.merged}件`;
+  if (totalStats.yupack > 0) msg += ` / ゆうパック ${totalStats.yupack}件`;
   showToast(msg, 'success');
 
   previewSection.scrollIntoView({ behavior: 'smooth' });
 }
 
-// 商品別集計バーの表示
+// 商品別集計バーの表示（全ファイル合算）
 function renderSummaryBar(rows, stats) {
   const summary = buildProductSummary(rows);
   let el = document.getElementById('summaryBar');
@@ -836,11 +997,11 @@ function renderSummaryBar(rows, stats) {
   el.innerHTML = html;
 }
 
-function buildMappedData() {
-  return rawData.map(row => {
+function buildMappedData(f) {
+  return f.rows.map(row => {
     const mapped = {};
     OUTPUT_COLUMNS.forEach(col => {
-      const idx = columnMapping[col.key];
+      const idx = f.mapping[col.key];
       if (idx !== undefined) {
         mapped[col.key] = String(row[idx] ?? '').trim();
       } else {
@@ -851,7 +1012,7 @@ function buildMappedData() {
     // 電話番号統合: CONFIG.phonePriority の順でデータが入っている最初のものを採用
     mapped.phone1 = '';
     for (const phoneKey of CONFIG.phonePriority) {
-      const idx = columnMapping[phoneKey];
+      const idx = f.mapping[phoneKey];
       if (idx === undefined) continue;
       const val = normalizePhone(String(row[idx] ?? ''));
       if (isValidPhone(val)) { mapped.phone1 = val; break; }
@@ -859,9 +1020,9 @@ function buildMappedData() {
 
     // 住所結合: 市区町村郡 + 町名 + 番地 が個別列の場合は結合
     if (!mapped.address || mapped.address === '') {
-      const cityIdx = columnMapping.city;
-      const townIdx = columnMapping.town;
-      const blockIdx = columnMapping.block;
+      const cityIdx = f.mapping.city;
+      const townIdx = f.mapping.town;
+      const blockIdx = f.mapping.block;
       const parts = [];
       if (cityIdx !== undefined) parts.push(String(row[cityIdx] ?? '').trim());
       if (townIdx !== undefined) parts.push(String(row[townIdx] ?? '').trim());
@@ -890,99 +1051,120 @@ function buildMappedData() {
   });
 }
 
-function renderPreviewTable(data) {
-  if (data.length === 0) {
+// 変換結果テーブル（複数ファイルはVBA版同様、ファイル名行で区切る）
+function renderPreviewTable(fileResults) {
+  const allCount = fileResults.reduce((s, fr) => s + fr.rows.length, 0);
+  if (allCount === 0) {
     tableWrapper.innerHTML = '<p style="padding:20px;color:#999;">データがありません</p>';
     return;
   }
 
-  const C = CONFIG.colors;
-
+  const totalCols = ALL_COLUMNS.length + 1;
   let html = '<table class="data-table"><thead><tr><th class="row-num">#</th>';
   ALL_COLUMNS.forEach(col => {
     html += `<th>${escapeHtml(col.label)}</th>`;
   });
   html += '</tr></thead><tbody>';
 
-  const limit = Math.min(data.length, 200);
-  for (let i = 0; i < limit; i++) {
-    const row = data[i];
-    const isYupack = (row.carrier || '').trim() === 'ゆうパック';
-    const rowStyle = isYupack ? `background:${C.yupackRow};` : '';
+  const multi = fileResults.length > 1;
+  let rendered = 0;
+  const renderLimit = 500;
 
-    html += `<tr><td class="row-num" style="${rowStyle}">${i + 1}</td>`;
-
-    ALL_COLUMNS.forEach(col => {
-      const val = row[col.key] || '';
-      let style = rowStyle;
-
-      // 空白チェック対象列が空白 → 赤
-      if (CONFIG.emptyCheckColumns.includes(col.key) && val.trim() === '') {
-        style = `background:${C.emptyCell};`;
-      }
-
-      // 数量: 空白/0 → 赤、2以上 → 緑太字
-      if (col.key === 'quantity') {
-        const qty = parseFloat(val);
-        if (!qty) {
-          style = `background:${C.emptyCell};`;
-        } else if (qty >= 2) {
-          style = rowStyle + `background:${C.quantityHigh};font-weight:bold;`;
-        }
-        style += 'text-align:center;';
-      }
-
-      // 番号・日付列は中央揃え
-      if (['number', 'requestDate', 'deliveryDate'].includes(col.key)) {
-        style += 'text-align:center;';
-      }
-
-      // ゆうパックの運送会社セル → 赤太字
-      if (col.key === 'carrier' && isYupack) {
-        style += `color:${C.yupackText};font-weight:bold;`;
-      }
-
-      // 会社名の改行を <br> で表示
-      const display = col.key === 'companyName'
-        ? escapeHtml(val).replace(/\n/g, '<br>')
-        : escapeHtml(val);
-
-      html += `<td style="${style}">${display}</td>`;
-    });
-    html += '</tr>';
+  for (const fr of fileResults) {
+    // ファイル名行（VBA版: ファイル名　データn件　個数合計n件）
+    if (multi) {
+      const totalQty = fr.rows.reduce((s, r) => s + (parseFloat(r.quantity) || 0), 0);
+      html += `<tr class="file-sep-row"><td colspan="${totalCols}">📄 ${escapeHtml(fr.name)}　データ${fr.rows.length}件　個数合計${totalQty}件</td></tr>`;
+    }
+    for (let i = 0; i < fr.rows.length; i++) {
+      if (rendered >= renderLimit) break;
+      html += renderDataRow(fr.rows[i], i);
+      rendered++;
+    }
+    if (rendered >= renderLimit) break;
   }
 
-  if (data.length > 200) {
-    html += `<tr><td colspan="${ALL_COLUMNS.length + 1}" style="text-align:center;color:#999;padding:12px;">
-      ... 他 ${data.length - 200} 件（表示は200件まで）</td></tr>`;
+  if (allCount > renderLimit) {
+    html += `<tr><td colspan="${totalCols}" style="text-align:center;color:#999;padding:12px;">
+      ... 他 ${allCount - renderLimit} 件（表示は${renderLimit}件まで）</td></tr>`;
   }
 
   html += '</tbody></table>';
   tableWrapper.innerHTML = html;
 }
 
+function renderDataRow(row, i) {
+  const C = CONFIG.colors;
+  const isYupack = (row.carrier || '').trim() === 'ゆうパック';
+  const rowStyle = isYupack ? `background:${C.yupackRow};` : '';
+
+  let html = `<tr><td class="row-num" style="${rowStyle}">${i + 1}</td>`;
+
+  ALL_COLUMNS.forEach(col => {
+    const val = row[col.key] || '';
+    let style = rowStyle;
+
+    // 空白チェック対象列が空白 → 赤
+    if (CONFIG.emptyCheckColumns.includes(col.key) && val.trim() === '') {
+      style = `background:${C.emptyCell};`;
+    }
+
+    // 数量: 空白/0 → 赤、2以上 → 緑太字
+    if (col.key === 'quantity') {
+      const qty = parseFloat(val);
+      if (!qty) {
+        style = `background:${C.emptyCell};`;
+      } else if (qty >= 2) {
+        style = rowStyle + `background:${C.quantityHigh};font-weight:bold;`;
+      }
+      style += 'text-align:center;';
+    }
+
+    // 番号・日付列は中央揃え
+    if (['number', 'requestDate', 'deliveryDate'].includes(col.key)) {
+      style += 'text-align:center;';
+    }
+
+    // ゆうパックの運送会社セル → 赤太字
+    if (col.key === 'carrier' && isYupack) {
+      style += `color:${C.yupackText};font-weight:bold;`;
+    }
+
+    // 会社名の改行を <br> で表示
+    const display = col.key === 'companyName'
+      ? escapeHtml(val).replace(/\n/g, '<br>')
+      : escapeHtml(val);
+
+    html += `<td style="${style}">${display}</td>`;
+  });
+  html += '</tr>';
+  return html;
+}
+
 // ============================================================
 // UI helpers
 // ============================================================
-function showFileInfo(file) {
+function showFileInfo() {
   dropZone.style.display = 'none';
   fileInfo.classList.add('visible');
-  document.getElementById('fileName').textContent = file.name;
-  const size = file.size < 1024 ? `${file.size} B`
-    : file.size < 1048576 ? `${(file.size / 1024).toFixed(1)} KB`
-    : `${(file.size / 1048576).toFixed(1)} MB`;
-  const ext = file.name.split('.').pop().toUpperCase();
-  document.getElementById('fileMeta').textContent = `${ext} / ${size} / ヘッダー: ${rawHeaders.length}列 / データ: ${rawData.length}行`;
+  document.getElementById('fileName').textContent = files.map(f => f.name).join(' ／ ');
+
+  const totalSize = files.reduce((s, f) => s + f.size, 0);
+  const sizeLabel = totalSize < 1024 ? `${totalSize} B`
+    : totalSize < 1048576 ? `${(totalSize / 1024).toFixed(1)} KB`
+    : `${(totalSize / 1048576).toFixed(1)} MB`;
+  document.getElementById('fileMeta').textContent =
+    `${files.length}ファイル / ${sizeLabel} / データ合計: ${totalRowCount()}行`;
 }
 
 function resetAll() {
-  rawHeaders = [];
-  rawData = [];
-  columnMapping = {};
-  processedRows = [];
+  files = [];
+  activeMappingFile = 0;
+  processedFiles = [];
   dropZone.style.display = '';
   fileInfo.classList.remove('visible');
   rawSection.classList.remove('visible');
+  setRawCollapsed(false);
   mappingSection.classList.remove('visible');
   previewSection.classList.remove('visible');
   document.getElementById('btnToggleMapping').textContent = '列マッピングを確認・編集 ▸';
