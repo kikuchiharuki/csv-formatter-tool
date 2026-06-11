@@ -63,11 +63,17 @@ body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; backgroun
   margin-top: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
 .raw-section.visible { display: block; }
-/* 変換後は1行に折りたたむ（ヘッダー行だけ残す） */
-.raw-section.collapsed { padding: 12px 20px; }
+/* 変換後は1行に折りたたむ（ヘッダー行だけ残す・コンパクト表示） */
+.raw-section.collapsed { padding: 4px 20px; }
 .raw-section.collapsed .table-wrapper,
-.raw-section.collapsed .mapping-section { display: none; }
+.raw-section.collapsed .mapping-section,
+.raw-section.collapsed .mapping-badge,
+.raw-section.collapsed #btnToggleMapping { display: none; }
 .raw-section.collapsed .raw-header { margin-bottom: 0; }
+.raw-section.collapsed .raw-header h2 { font-size: 14px; }
+.raw-section.collapsed .btn-convert {
+  padding: 5px 16px; font-size: 13px; box-shadow: none;
+}
 .raw-header {
   display: flex; align-items: center; gap: 16px; margin-bottom: 12px;
   flex-wrap: wrap;
@@ -180,7 +186,9 @@ body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; backgroun
   background: #34495e; color: #fff; padding: 8px 12px; text-align: left;
   position: sticky; top: 0; z-index: 1;
 }
-.data-table td { padding: 6px 12px; border-bottom: 1px solid #eee; }
+/* 縦線あり（Excelの枠線と同じくらいの色） */
+.data-table td { padding: 6px 12px; border: 1px solid #d4d4d4; }
+.data-table th { border: 1px solid #4a5d70; }
 .data-table tr:hover td { background: #f5f8ff; }
 .data-table .row-num { color: #999; text-align: center; width: 40px; }
 
@@ -340,7 +348,8 @@ const CONFIG = {
   // ──────────────────────────────────────────────
   productRules: [
     {
-      productName: 'ジェット＆ビーズ',
+      // 対象の商品名（複数指定可。完全一致で判定）
+      productNames: ['ジェット＆ビーズ', 'ジェット＆ディフューザー'],
       description: '会社名の先頭に「大東建託リーシング株式会社」+改行、末尾に「店」を追加',
       companyPrefix: '大東建託リーシング株式会社\n',
       companySuffix: '店',
@@ -898,9 +907,9 @@ function processData(rows) {
   merged.forEach(r => {
     let name = r.companyName;
 
-    // 製品ルール（例: ジェット＆ビーズ → リーシング〇〇店）
+    // 製品ルール（例: ジェット＆ディフューザー → リーシング〇〇店）
     for (const rule of CONFIG.productRules) {
-      if (r.product.trim() === rule.productName && !name.includes(rule.skipIfCompanyIncludes)) {
+      if (rule.productNames.includes(r.product.trim()) && !name.includes(rule.skipIfCompanyIncludes)) {
         name = rule.companyPrefix + name + rule.companySuffix;
         stats.storeAdded++;
       }
@@ -981,7 +990,7 @@ function renderSummaryBar(rows, stats) {
   if (!el) {
     el = document.createElement('div');
     el.id = 'summaryBar';
-    el.style.cssText = 'background:#eaf4fd;border:1px solid #bcdcf5;border-radius:6px;padding:10px 16px;margin-bottom:12px;font-size:13px;line-height:1.8;';
+    el.style.cssText = 'background:#eaf4fd;border:1px solid #bcdcf5;border-radius:6px;padding:12px 16px;margin-bottom:12px;font-size:16px;line-height:1.8;';
     tableWrapper.parentNode.insertBefore(el, tableWrapper);
   }
   const parts = [];
@@ -993,7 +1002,7 @@ function renderSummaryBar(rows, stats) {
   if (stats.merged > 0) notes.push(`重複統合: ${stats.merged}件`);
   if (stats.yupack > 0) notes.push(`ゆうパック: ${stats.yupack}件`);
   if (stats.storeAdded > 0) notes.push(`リーシング店名変換: ${stats.storeAdded}件`);
-  if (notes.length) html += `<br><span style="color:#666;">${notes.join(' ／ ')}</span>`;
+  if (notes.length) html += `<br><span style="color:#666;font-size:13px;">${notes.join(' ／ ')}</span>`;
   el.innerHTML = html;
 }
 
