@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CSV整形ツール</title>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!-- xlsx-js-style: SheetJS 0.18.5互換 + セル背景色/フォント/罫線などのスタイル出力対応 -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -207,34 +208,10 @@ body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; backgroun
   #summaryBar { font-size: 13px !important; padding: 6px 10px !important; }
   .summary-notes { display: none !important; }
   .table-wrapper { overflow: visible; max-height: none; }
-  /* 全列を必ず1ページ幅に収める（固定レイアウト+列幅%指定+折り返し） */
-  .data-table {
-    font-size: 9px; white-space: normal; table-layout: fixed; width: 100%;
-  }
-  .data-table th {
-    position: static; background: #34495e !important; color: #fff !important;
-    font-size: 9px; padding: 3px 4px; overflow: hidden;
-  }
-  .data-table td {
-    padding: 2px 4px; word-break: break-all; overflow-wrap: anywhere;
-  }
+  /* テーブルは画面と同じレイアウトのまま、印刷時にzoomで全列を1ページ幅に縮小する
+     （Excelの「すべての列を1ページに印刷」と同じ。倍率はbeforeprintでJSが計算） */
+  .data-table th { position: static; }
   .data-table tr { break-inside: avoid; }
-  .data-table tr.file-sep-row td { font-size: 10px; padding: 4px; word-break: normal; }
-  /* 列幅（#,商品,数量,依頼日,納期,出荷日,会社名,電話,郵便,県,住所,建物,運送,重複） */
-  .data-table th:nth-child(1)  { width: 2%; }
-  .data-table th:nth-child(2)  { width: 9%; }
-  .data-table th:nth-child(3)  { width: 3%; }
-  .data-table th:nth-child(4)  { width: 6.5%; }
-  .data-table th:nth-child(5)  { width: 6.5%; }
-  .data-table th:nth-child(6)  { width: 6.5%; }
-  .data-table th:nth-child(7)  { width: 14%; }
-  .data-table th:nth-child(8)  { width: 8%; }
-  .data-table th:nth-child(9)  { width: 6%; }
-  .data-table th:nth-child(10) { width: 5%; }
-  .data-table th:nth-child(11) { width: 16%; }
-  .data-table th:nth-child(12) { width: 9.5%; }
-  .data-table th:nth-child(13) { width: 4%; }
-  .data-table th:nth-child(14) { width: 4%; }
 }
 
 /* Preview table */
@@ -736,6 +713,21 @@ document.getElementById('btnPrint').addEventListener('click', () => {
   window.print();
 });
 
+// 印刷時: テーブルの実幅からzoom倍率を計算して全列をA4横1ページ幅に収める
+// （Ctrl+P直接印刷でも効くよう beforeprint/afterprint で着脱する）
+window.addEventListener('beforeprint', () => {
+  const table = tableWrapper.querySelector('table');
+  if (!table) return;
+  table.style.zoom = 1;
+  const printableWidthPx = (297 - 16) * 96 / 25.4;  // A4横297mm - 余白8mm×2 → px換算
+  const scale = Math.min(1, printableWidthPx / table.scrollWidth);
+  table.style.zoom = scale;
+});
+window.addEventListener('afterprint', () => {
+  const table = tableWrapper.querySelector('table');
+  if (table) table.style.zoom = '';
+});
+
 // Excel保存ボタン
 // ファイル名: [YYYYMMDD出荷分商品名+商品名.xlsx]（日付は出荷日）
 document.getElementById('btnExcel').addEventListener('click', () => {
@@ -750,12 +742,15 @@ document.getElementById('btnExcel').addEventListener('click', () => {
   const fileName = `${ymd}出荷分${products.join('+')}.xlsx`;
 
   // ヘッダー + データ（複数ファイル時はVBA版同様ファイル名区切り行を入れる）
+  // meta[i] = その行の種別（'header'/'sep'/データ行オブジェクト）。スタイル適用に使う
   const aoa = [ALL_COLUMNS.map(c => c.label)];
+  const meta = ['header'];
   const multi = processedFiles.length > 1;
   for (const pf of processedFiles) {
     if (multi) {
       const totalQty = pf.rows.reduce((s, r) => s + (parseFloat(r.quantity) || 0), 0);
       aoa.push([`${pf.name}　データ${pf.rows.length}件　個数合計${totalQty}件`]);
+      meta.push('sep');
     }
     for (const r of pf.rows) {
       aoa.push(ALL_COLUMNS.map(c => {
@@ -764,10 +759,76 @@ document.getElementById('btnExcel').addEventListener('click', () => {
         if (c.key === 'quantity' && v !== '' && !isNaN(parseFloat(v))) return parseFloat(v);
         return v;
       }));
+      meta.push(r);
     }
   }
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+  // ─── 画面の見た目をそのまま再現するスタイル（xlsx-js-style） ───
+  const C = CONFIG.colors;
+  const hex = c => c.replace('#', '').toUpperCase();
+  const fill = c => ({ patternType: 'solid', fgColor: { rgb: hex(c) } });
+  const thin = { style: 'thin', color: { rgb: 'BFBFBF' } };
+  const border = { top: thin, bottom: thin, left: thin, right: thin };
+  const rowHeights = [];
+
+  for (let R = 0; R < aoa.length; R++) {
+    const m = meta[R];
+
+    // ヘッダー行: 濃紺地に白太字
+    if (m === 'header') {
+      rowHeights.push({ hpt: 20 });
+      for (let Cn = 0; Cn < ALL_COLUMNS.length; Cn++) {
+        const cell = ws[XLSX.utils.encode_cell({ r: R, c: Cn })];
+        if (cell) cell.s = {
+          font: { bold: true, sz: 10, color: { rgb: 'FFFFFF' } },
+          fill: fill('#34495e'),
+          alignment: { horizontal: 'center', vertical: 'center' },
+          border,
+        };
+      }
+      continue;
+    }
+
+    // ファイル名区切り行: 太字・大きめ
+    if (m === 'sep') {
+      rowHeights.push({ hpt: 24 });
+      const cell = ws[XLSX.utils.encode_cell({ r: R, c: 0 })];
+      if (cell) cell.s = { font: { bold: true, sz: 11 }, alignment: { vertical: 'bottom' } };
+      continue;
+    }
+
+    // データ行: 会社名の改行数に応じて行の高さを確保（wrapTextで折り返し表示）
+    const r = m;
+    const lines = ((r.companyName || '').match(/\n/g) || []).length + 1;
+    rowHeights.push({ hpt: Math.max(18, lines * 14 + 4) });
+    const isYupack = (r.carrier || '').trim() === 'ゆうパック';
+
+    for (let Cn = 0; Cn < ALL_COLUMNS.length; Cn++) {
+      const key = ALL_COLUMNS[Cn].key;
+      const addr = XLSX.utils.encode_cell({ r: R, c: Cn });
+      let cell = ws[addr];
+      if (!cell) cell = ws[addr] = { t: 's', v: '' };  // 空セルにも色・罫線を付けるため生成
+      const val = String(cell.v ?? '');
+
+      const s = { font: { sz: 10 }, alignment: { vertical: 'center', wrapText: true }, border };
+      if (isYupack) s.fill = fill(C.yupackRow);                                   // ゆうパック行 → ピンク
+      if (CONFIG.emptyCheckColumns.includes(key) && val.trim() === '') s.fill = fill(C.emptyCell);  // 必須空白 → 赤
+      if (key === 'quantity') {
+        const q = parseFloat(val);
+        if (!q) s.fill = fill(C.emptyCell);                                       // 数量空白/0 → 赤
+        else if (q >= 2) { s.fill = fill(C.quantityHigh); s.font.bold = true; }   // 2以上 → 緑太字
+        s.alignment.horizontal = 'center';
+      }
+      if (['requestDate', 'deliveryDate', 'shipDate'].includes(key)) s.alignment.horizontal = 'center';
+      if (key === 'deliveryDate' && r.deliveryChanged) { s.fill = fill(C.deliveryChanged); s.font.bold = true; }  // 納期変更 → 黄
+      if (key === 'carrier' && isYupack) { s.font.color = { rgb: hex(C.yupackText) }; s.font.bold = true; }       // ゆうパック文字 → 赤太字
+      cell.s = s;
+    }
+  }
+  ws['!rows'] = rowHeights;
+
   // 列幅（文字数ベース）
   const colWidths = {
     product: 22, quantity: 6, requestDate: 11, deliveryDate: 11, shipDate: 11,
@@ -898,13 +959,16 @@ function readExcel(file) {
     reader.onload = function(e) {
       try {
         const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
+        // cellDates: 日付セルをシリアル値(46161等)ではなくDateとして読み、"2026/6/8" 形式に整形する
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
         const sheetName = workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
         const json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
         if (json.length < 2) { resolve(null); return; }
         const headers = json[0].map(h => String(h).trim());
-        const rows = json.slice(1).filter(row => row.some(cell => String(cell).trim() !== ''));
+        const rows = json.slice(1)
+          .map(row => row.map(cell => cell instanceof Date ? fmtSlash(cell) : cell))
+          .filter(row => row.some(cell => String(cell).trim() !== ''));
         resolve({ headers, rows });
       } catch (err) { reject(err); }
     };
@@ -1439,8 +1503,7 @@ function renderSummaryBar(rows, stats) {
   const notes = [];
   if (stats.merged > 0) notes.push(`重複統合: ${stats.merged}件`);
   if (stats.yupack > 0) notes.push(`ゆうパック: ${stats.yupack}件`);
-  if (stats.storeAdded > 0) notes.push(`リーシング店名変換: ${stats.storeAdded}件`);
-  if (stats.deliveryChanged > 0) notes.push(`<span style="background:${CONFIG.colors.deliveryChanged};padding:0 4px;">納期変更(LT間に合わず): ${stats.deliveryChanged}件</span>`);
+  if (stats.deliveryChanged > 0) notes.push(`<span style="background:${CONFIG.colors.deliveryChanged};padding:0 4px;">納期変更: ${stats.deliveryChanged}件</span>`);
   if (stats.zipFilled > 0) notes.push(`郵便番号取得: ${stats.zipFilled}件`);
   // 注記行（ゆうパック件数など）は印刷時には出さない（.summary-notes を@media printで非表示）
   if (notes.length) html += `<br><span class="summary-notes" style="color:#666;font-size:13px;">${notes.join(' ／ ')}</span>`;
