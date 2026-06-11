@@ -180,6 +180,49 @@ body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; backgroun
 /* 変換結果のヘッダーは少し小さめ */
 .preview-section .data-table th { font-size: 12px; }
 
+/* 変換結果ヘッダー（タイトル + 出荷日/印刷ボタン） */
+.preview-header {
+  display: flex; align-items: center; gap: 16px; margin-bottom: 12px; flex-wrap: wrap;
+}
+.preview-header h2 { margin-bottom: 0; }
+.edit-hint { font-size: 11px; color: #999; font-weight: normal; margin-left: 8px; }
+.preview-actions {
+  margin-left: auto; display: flex; align-items: center; gap: 10px;
+}
+
+/* 編集可能セル */
+.data-table td[contenteditable]:hover { box-shadow: inset 0 0 0 1px #3498db55; cursor: text; }
+.data-table td[contenteditable]:focus {
+  outline: 2px solid #3498db; outline-offset: -2px; background: #fffdf0 !important;
+}
+
+/* 印刷専用ヘッダー（画面では非表示） */
+.print-only { display: none; }
+
+/* ───────── 印刷レイアウト（A4横） ───────── */
+@media print {
+  @page { size: A4 landscape; margin: 8mm; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { background: #fff; }
+  .app-header, .drop-zone, .file-info, .raw-section,
+  .preview-header, .toast { display: none !important; }
+  .container { max-width: none; padding: 0; margin: 0; }
+  .preview-section { box-shadow: none; padding: 0; border-radius: 0; }
+  .print-only {
+    display: block; font-size: 15px; font-weight: 700; margin-bottom: 6px;
+  }
+  #summaryBar { font-size: 13px !important; padding: 6px 10px !important; }
+  .table-wrapper { overflow: visible; max-height: none; }
+  .data-table { font-size: 10px; white-space: normal; }
+  .data-table th {
+    position: static; background: #34495e !important; color: #fff !important;
+    font-size: 10px;
+  }
+  .data-table td { padding: 3px 6px; }
+  .data-table tr { break-inside: avoid; }
+  .data-table tr.file-sep-row td { font-size: 11px; padding: 5px 6px; }
+}
+
 /* Preview table */
 .preview-section {
   display: none; background: #fff; border-radius: 8px; padding: 20px;
@@ -259,9 +302,6 @@ body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; backgroun
       <div class="raw-actions">
         <span class="mapping-badge" id="mappingBadge"></span>
         <button class="btn-link" id="btnToggleMapping">列マッピングを確認・編集 ▸</button>
-        <label class="ship-date-label">出荷日
-          <input type="date" id="shipDate">
-        </label>
         <button class="btn-convert" id="btnApplyMapping">⚡ 変換する</button>
       </div>
     </div>
@@ -283,7 +323,19 @@ body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; backgroun
 
   <!-- 変換結果 -->
   <div class="preview-section" id="previewSection">
-    <h2>変換結果 <span id="previewCount" style="font-size:13px;color:#666;font-weight:normal;"></span></h2>
+    <div class="preview-header">
+      <h2>変換結果 <span id="previewCount" style="font-size:13px;color:#666;font-weight:normal;"></span>
+        <span class="edit-hint">※ セルはクリックして直接修正できます</span>
+      </h2>
+      <div class="preview-actions">
+        <label class="ship-date-label">出荷日
+          <input type="date" id="shipDate">
+        </label>
+        <button class="btn-primary" id="btnApplyShipDate">📅 出荷日を設定</button>
+        <button class="btn-secondary" id="btnPrint">🖨 印刷</button>
+      </div>
+    </div>
+    <div class="print-only" id="printHeader"></div>
     <div class="table-wrapper" id="tableWrapper"></div>
   </div>
 </div>
@@ -518,9 +570,7 @@ const holidaysReady = (async () => {
   for (let y = thisYear; y <= thisYear + 2; y++) {
     if (!Object.keys(HOLIDAYS).some(k => k.startsWith(y + '-'))) genHol(y);
   }
-  // 出荷日のデフォルト = 翌営業日
-  const inp = document.getElementById('shipDate');
-  if (inp && !inp.value) inp.value = nextBizIso();
+  // ※ 出荷日は自動入力しない（当日出荷の場合もあるため、ユーザーが明示的に設定する）
 })();
 
 // 翌営業日（明日から数えて最初の平日・非祝日）
@@ -656,6 +706,59 @@ fileInput.addEventListener('change', e => {
 });
 document.getElementById('btnReset').addEventListener('click', resetAll);
 document.getElementById('btnApplyMapping').addEventListener('click', applyMappingAndPreview);
+
+// 出荷日設定ボタン（Excel版の「出荷日設定」ボタンと同じ役割）
+document.getElementById('btnApplyShipDate').addEventListener('click', async () => {
+  if (!processedFiles.length) { showToast('先に「⚡ 変換する」を実行してください', 'error'); return; }
+  const v = document.getElementById('shipDate').value;
+  if (!v) { showToast('出荷日を選択してください', 'error'); return; }
+  await holidaysReady;
+  const changed = applyShipDateToRows(v);
+  if (lastStats) lastStats.deliveryChanged = changed;
+  renderSummaryBar(processedFiles.flatMap(pf => pf.rows), lastStats || {});
+  renderPreviewTable(processedFiles);
+  updatePrintHeader();
+  showToast(changed
+    ? `出荷日 ${fmtSlash(new Date(v))} で納期チェック: ${changed}件の納期を変更（黄色）`
+    : `出荷日 ${fmtSlash(new Date(v))}: 全行、指定納期に間に合います`, changed ? '' : 'success');
+});
+
+// 印刷ボタン（A4横。出荷日+商品集計が表の上に印刷される）
+document.getElementById('btnPrint').addEventListener('click', () => {
+  if (!processedFiles.length) { showToast('先に「⚡ 変換する」を実行してください', 'error'); return; }
+  updatePrintHeader();
+  window.print();
+});
+
+// 変換結果セルの直接編集（focusoutで行データに書き戻す）
+tableWrapper.addEventListener('focusout', e => {
+  const td = e.target.closest ? e.target.closest('td[data-k]') : null;
+  if (!td) return;
+  const row = processedFiles[+td.dataset.f]?.rows[+td.dataset.r];
+  if (!row) return;
+  const key = td.dataset.k;
+  let val = td.innerText.replace(/ /g, ' ');
+  if (key !== 'companyName') val = val.replace(/\n+/g, ' ').trim();
+  if (row[key] === val) return;
+  row[key] = val;
+  // 納期を手で直したら「自動変更」扱いを解除（黄色を消す）
+  if (key === 'deliveryDate') {
+    row.deliveryChanged = false;
+    delete row.deliveryDateOrig;
+    td.style.background = '';
+    td.style.fontWeight = '';
+    td.removeAttribute('title');
+  }
+  // 数量や商品の修正は集計バーに即反映
+  if (lastStats) renderSummaryBar(processedFiles.flatMap(pf => pf.rows), lastStats);
+});
+
+// 印刷ヘッダー（出荷日表示）を更新
+function updatePrintHeader() {
+  const v = document.getElementById('shipDate').value;
+  document.getElementById('printHeader').textContent =
+    '🚚 出荷日: ' + (v ? `${fmtSlash(new Date(v))}（${'日月火水木金土'[new Date(v).getDay()]}）` : '未設定');
+}
 document.getElementById('btnAutoMap').addEventListener('click', () => {
   const f = files[activeMappingFile];
   if (f) { f.mapping = autoDetectMapping(f.headers); addExtraMappings(f); }
@@ -1060,9 +1163,10 @@ function isValidPhone(s) {
 // ============================================================
 // データ処理パイプライン（VBAマクロの処理チェーンを再現）
 // ファイル単位で実行する（重複統合はファイル内で完結）
-// 順序: 運送会社判定 → 重複統合 → 会社名処理 → 出荷日/納期チェック
+// 順序: 運送会社判定 → 重複統合 → 会社名処理
+// ※ 出荷日/納期チェックは「出荷日を設定」ボタンで実行（applyShipDateToRows）
 // ============================================================
-function processData(rows, shipDateIso) {
+function processData(rows) {
   const stats = { merged: 0, yupack: 0, storeAdded: 0, lineBreaks: 0, deliveryChanged: 0 };
 
   // --- 1. 運送会社の自動判定（CONFIG.carrierRules）---
@@ -1126,28 +1230,43 @@ function processData(rows, shipDateIso) {
     r.companyName = name;
   });
 
-  // --- 4. 出荷日の設定 + リードタイムによる納期チェック ---
-  //     着日（出荷日+LT、非営業日は翌営業日）が指定納期より後なら、
-  //     指定納期を着日に変更して黄色表示する（手作業の納期確認を自動化）
-  if (CONFIG.leadTime.enabled && shipDateIso) {
-    const shipLabel = fmtSlash(new Date(shipDateIso));
-    merged.forEach(r => {
+  return { rows: merged, stats };
+}
+
+// ============================================================
+// 出荷日の設定 + リードタイムによる納期チェック
+// 着日（出荷日+LT、非営業日は翌営業日）が指定納期より後なら、
+// 指定納期を着日に変更して黄色表示する（手作業の納期確認を自動化）
+// 何度でも実行可能（元の納期を基準に再計算する）
+// ============================================================
+function applyShipDateToRows(shipDateIso) {
+  const shipLabel = fmtSlash(new Date(shipDateIso));
+  let changed = 0;
+  for (const pf of processedFiles) {
+    for (const r of pf.rows) {
       r.shipDate = shipLabel;
-      if (CONFIG.leadTime.skipIfCarrierSet && r.carrier) return;  // ゆうパック等は対象外
+      if (!CONFIG.leadTime.enabled) continue;
+      if (CONFIG.leadTime.skipIfCarrierSet && r.carrier) continue;  // ゆうパック等は対象外
+      const baseStr = r.deliveryChanged ? r.deliveryDateOrig : r.deliveryDate;
+      const due = parseYmd(baseStr);
       const lt = findLeadTime(r.prefecture, r.address);
-      if (!lt) return;
+      if (!due || !lt) continue;
       const arrival = calcArrival(shipDateIso, lt);
-      const due = parseYmd(r.deliveryDate);
-      if (arrival && due && arrival.getTime() > due.getTime()) {
-        r.deliveryDateOrig = r.deliveryDate;
+      if (!arrival) continue;
+      if (arrival.getTime() > due.getTime()) {
+        if (!r.deliveryChanged) r.deliveryDateOrig = r.deliveryDate;
         r.deliveryDate = fmtSlash(arrival);
         r.deliveryChanged = true;
-        stats.deliveryChanged++;
+        changed++;
+      } else if (r.deliveryChanged) {
+        // 出荷日を早めて間に合うようになった場合は元の納期に戻す
+        r.deliveryDate = r.deliveryDateOrig;
+        delete r.deliveryDateOrig;
+        r.deliveryChanged = false;
       }
-    });
+    }
   }
-
-  return { rows: merged, stats };
+  return changed;
 }
 
 // 商品別集計（印刷ヘッダー用: 商品名 / 件数 / 合計数量）
@@ -1168,24 +1287,38 @@ function buildProductSummary(rows) {
 // ============================================================
 // マッピング確定 → 整形処理（ファイル単位） → プレビュー
 // ============================================================
+let lastStats = null;
+
 async function applyMappingAndPreview() {
   previewSection.classList.add('visible');
 
   // 祝日データの読み込みを待つ（通常は一瞬）
   await holidaysReady;
-  const shipDateIso = document.getElementById('shipDate').value || nextBizIso();
 
   const totalStats = { merged: 0, yupack: 0, storeAdded: 0, lineBreaks: 0, deliveryChanged: 0, zipFilled: 0 };
   processedFiles = [];
 
   for (const f of files) {
     const mappedData = buildMappedData(f);
-    const { rows, stats } = processData(mappedData, shipDateIso);
+    const { rows, stats } = processData(mappedData);
     Object.keys(totalStats).forEach(k => { totalStats[k] += (stats[k] || 0); });
     processedFiles.push({ name: f.name, rows });
   }
 
+  // 同じ商品のファイルが隣り合うように並び替え（先頭行の商品名→ファイル名順）
+  processedFiles.sort((a, b) => {
+    const pa = (a.rows[0]?.product || ''), pb = (b.rows[0]?.product || '');
+    return pa.localeCompare(pb, 'ja') || a.name.localeCompare(b.name, 'ja');
+  });
+
+  // 出荷日が入力済みなら納期チェックも実行（未入力ならスキップ）
+  const shipDateIso = document.getElementById('shipDate').value;
+  if (shipDateIso) {
+    totalStats.deliveryChanged = applyShipDateToRows(shipDateIso);
+  }
+
   const allRows = processedFiles.flatMap(pf => pf.rows);
+  lastStats = totalStats;
 
   // 郵便番号が空白の行をAPIで補完（順次・待ち時間あり）
   if (CONFIG.zipcode.enabled) {
@@ -1202,6 +1335,7 @@ async function applyMappingAndPreview() {
 
   renderSummaryBar(allRows, totalStats);
   renderPreviewTable(processedFiles);
+  updatePrintHeader();
 
   document.getElementById('previewCount').textContent =
     files.length > 1
@@ -1320,7 +1454,8 @@ function renderPreviewTable(fileResults) {
   let rendered = 0;
   const renderLimit = 500;
 
-  for (const fr of fileResults) {
+  for (let fi = 0; fi < fileResults.length; fi++) {
+    const fr = fileResults[fi];
     // ファイル名行（VBA版: ファイル名　データn件　個数合計n件）
     if (multi) {
       const totalQty = fr.rows.reduce((s, r) => s + (parseFloat(r.quantity) || 0), 0);
@@ -1328,7 +1463,7 @@ function renderPreviewTable(fileResults) {
     }
     for (let i = 0; i < fr.rows.length; i++) {
       if (rendered >= renderLimit) break;
-      html += renderDataRow(fr.rows[i], i);
+      html += renderDataRow(fr.rows[i], i, fi);
       rendered++;
     }
     if (rendered >= renderLimit) break;
@@ -1343,7 +1478,7 @@ function renderPreviewTable(fileResults) {
   tableWrapper.innerHTML = html;
 }
 
-function renderDataRow(row, i) {
+function renderDataRow(row, i, fi) {
   const C = CONFIG.colors;
   const isYupack = (row.carrier || '').trim() === 'ゆうパック';
   const rowStyle = isYupack ? `background:${C.yupackRow};` : '';
@@ -1392,7 +1527,8 @@ function renderDataRow(row, i) {
       ? escapeHtml(val).replace(/\n/g, '<br>')
       : escapeHtml(val);
 
-    html += `<td style="${style}"${title}>${display}</td>`;
+    // セルは直接編集可能（focusoutで行データに書き戻す）
+    html += `<td style="${style}"${title} contenteditable="true" data-f="${fi}" data-r="${i}" data-k="${col.key}">${display}</td>`;
   });
   html += '</tr>';
   return html;
