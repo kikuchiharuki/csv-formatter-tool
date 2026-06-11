@@ -205,15 +205,36 @@ body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; backgroun
     display: block; font-size: 15px; font-weight: 700; margin-bottom: 6px;
   }
   #summaryBar { font-size: 13px !important; padding: 6px 10px !important; }
+  .summary-notes { display: none !important; }
   .table-wrapper { overflow: visible; max-height: none; }
-  .data-table { font-size: 10px; white-space: normal; }
+  /* 全列を必ず1ページ幅に収める（固定レイアウト+列幅%指定+折り返し） */
+  .data-table {
+    font-size: 9px; white-space: normal; table-layout: fixed; width: 100%;
+  }
   .data-table th {
     position: static; background: #34495e !important; color: #fff !important;
-    font-size: 10px;
+    font-size: 9px; padding: 3px 4px; overflow: hidden;
   }
-  .data-table td { padding: 3px 6px; }
+  .data-table td {
+    padding: 2px 4px; word-break: break-all; overflow-wrap: anywhere;
+  }
   .data-table tr { break-inside: avoid; }
-  .data-table tr.file-sep-row td { font-size: 11px; padding: 5px 6px; }
+  .data-table tr.file-sep-row td { font-size: 10px; padding: 4px; word-break: normal; }
+  /* 列幅（#,商品,数量,依頼日,納期,出荷日,会社名,電話,郵便,県,住所,建物,運送,重複） */
+  .data-table th:nth-child(1)  { width: 2%; }
+  .data-table th:nth-child(2)  { width: 9%; }
+  .data-table th:nth-child(3)  { width: 3%; }
+  .data-table th:nth-child(4)  { width: 6.5%; }
+  .data-table th:nth-child(5)  { width: 6.5%; }
+  .data-table th:nth-child(6)  { width: 6.5%; }
+  .data-table th:nth-child(7)  { width: 14%; }
+  .data-table th:nth-child(8)  { width: 8%; }
+  .data-table th:nth-child(9)  { width: 6%; }
+  .data-table th:nth-child(10) { width: 5%; }
+  .data-table th:nth-child(11) { width: 16%; }
+  .data-table th:nth-child(12) { width: 9.5%; }
+  .data-table th:nth-child(13) { width: 4%; }
+  .data-table th:nth-child(14) { width: 4%; }
 }
 
 /* Preview table */
@@ -317,6 +338,7 @@ body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; backgroun
           <input type="date" id="shipDate">
         </label>
         <button class="btn-primary" id="btnApplyShipDate">📅 出荷日を設定</button>
+        <button class="btn-secondary" id="btnExcel">📥 Excel保存</button>
         <button class="btn-secondary" id="btnPrint">🖨 印刷</button>
       </div>
     </div>
@@ -714,6 +736,51 @@ document.getElementById('btnPrint').addEventListener('click', () => {
   window.print();
 });
 
+// Excel保存ボタン
+// ファイル名: [YYYYMMDD出荷分商品名+商品名.xlsx]（日付は出荷日）
+document.getElementById('btnExcel').addEventListener('click', () => {
+  if (!processedFiles.length) { showToast('先に「⚡ 変換する」を実行してください', 'error'); return; }
+  const shipIso = document.getElementById('shipDate').value;
+  if (!shipIso) { showToast('出荷日を設定してください（ファイル名に使います）', 'error'); return; }
+
+  const d = new Date(shipIso);
+  const ymd = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+  const allRows = processedFiles.flatMap(pf => pf.rows);
+  const products = [...new Set(allRows.map(r => (r.product || '').trim()).filter(Boolean))];
+  const fileName = `${ymd}出荷分${products.join('+')}.xlsx`;
+
+  // ヘッダー + データ（複数ファイル時はVBA版同様ファイル名区切り行を入れる）
+  const aoa = [ALL_COLUMNS.map(c => c.label)];
+  const multi = processedFiles.length > 1;
+  for (const pf of processedFiles) {
+    if (multi) {
+      const totalQty = pf.rows.reduce((s, r) => s + (parseFloat(r.quantity) || 0), 0);
+      aoa.push([`${pf.name}　データ${pf.rows.length}件　個数合計${totalQty}件`]);
+    }
+    for (const r of pf.rows) {
+      aoa.push(ALL_COLUMNS.map(c => {
+        const v = r[c.key] ?? '';
+        // 数量は数値として出力（Excelで合計できるように）
+        if (c.key === 'quantity' && v !== '' && !isNaN(parseFloat(v))) return parseFloat(v);
+        return v;
+      }));
+    }
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  // 列幅（文字数ベース）
+  const colWidths = {
+    product: 22, quantity: 6, requestDate: 11, deliveryDate: 11, shipDate: 11,
+    companyName: 32, phone1: 14, postalCode: 10, prefecture: 8,
+    address: 32, building: 22, carrier: 10, duplicate: 9,
+  };
+  ws['!cols'] = ALL_COLUMNS.map(c => ({ wch: colWidths[c.key] || 12 }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '出荷データ');
+  XLSX.writeFile(wb, fileName);
+  showToast(`保存: ${fileName}`, 'success');
+});
+
 // 変換結果セルの直接編集（focusoutで行データに書き戻す）
 tableWrapper.addEventListener('focusout', e => {
   const td = e.target.closest ? e.target.closest('td[data-k]') : null;
@@ -966,8 +1033,15 @@ function renderMappingGrid() {
   const f = files[activeMappingFile];
   if (!f) { mappingGrid.innerHTML = ''; return; }
 
+  // 住所列（市区町村郡町名番地）は市区町村郡+町名+番地の連結 or 住所列の自動認識で
+  // 作られるため、認識できているときはマッピングUIに出さない（未認識のときだけ表示）
+  const addressSatisfied =
+    f.mapping.address !== undefined ||
+    (f.mapping.city !== undefined && f.mapping.town !== undefined && f.mapping.block !== undefined);
+
   mappingGrid.innerHTML = '';
   OUTPUT_COLUMNS.forEach(col => {
+    if (col.key === 'address' && addressSatisfied) return;
     const item = document.createElement('div');
     item.className = 'mapping-item';
 
@@ -1361,14 +1435,15 @@ function renderSummaryBar(rows, stats) {
   for (const [name, s] of summary) {
     parts.push(`<strong>${escapeHtml(name)}</strong>: ${s.count}件 ${s.quantity}個`);
   }
-  let html = `📦 ${parts.join(' ｜ ')}`;
+  let html = parts.join(' ｜ ');
   const notes = [];
   if (stats.merged > 0) notes.push(`重複統合: ${stats.merged}件`);
   if (stats.yupack > 0) notes.push(`ゆうパック: ${stats.yupack}件`);
   if (stats.storeAdded > 0) notes.push(`リーシング店名変換: ${stats.storeAdded}件`);
   if (stats.deliveryChanged > 0) notes.push(`<span style="background:${CONFIG.colors.deliveryChanged};padding:0 4px;">納期変更(LT間に合わず): ${stats.deliveryChanged}件</span>`);
   if (stats.zipFilled > 0) notes.push(`郵便番号取得: ${stats.zipFilled}件`);
-  if (notes.length) html += `<br><span style="color:#666;font-size:13px;">${notes.join(' ／ ')}</span>`;
+  // 注記行（ゆうパック件数など）は印刷時には出さない（.summary-notes を@media printで非表示）
+  if (notes.length) html += `<br><span class="summary-notes" style="color:#666;font-size:13px;">${notes.join(' ／ ')}</span>`;
   el.innerHTML = html;
 }
 
